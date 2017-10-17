@@ -1,0 +1,44 @@
+/**
+ * OrangeValley JSON (extern JavaScript) container
+ *
+ * @overview 
+ * = Dit script laadt een extern JavaScript waarin de uitvoerende code staat
+ *
+ * @How-to
+ * = Stap 1: Pas Var 1 aan naar de ID van het externe JavaScript bestand op Google Drive
+ * = Stap 2: Verander de main functie van het originele script aan naar mainFunction
+ */
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~Options: Adjust the options with the following variables~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+ 
+ /** Var 1: Laad het script vanuit de Google Drive. Verander de ID van het JSON bestand waar je naar verwijst */
+ var jsonID = '0B465-lFlQYAWQVMteWRKSGE4V0k';
+
+//~~~~~~~~~~~~~~~~~~~~Options END: Ending of variables that can be adjusted, don't touch the code below this line~~~~~~~~~~~~~~//
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+function main() {
+
+ var extScript = DriveApp.getFileById(jsonID).getBlob().getDataAsString();
+
+ // Evaluate and run actual script
+ try {
+   eval(extScript);
+   var script = eval("new mainFunction();");
+ }
+ 
+ catch(err) {
+   Logger.log(err.message);
+   scriptLogger(err.message);
+ }
+}
+
+// Dummy functies om rechten te krijgen om acties uit te voeren
+function sheetAuthorization(){
+ var dummySheet = SpreadsheetApp().openByUrl("http://www.dummy.com");  
+}
+
+function mailAuthorization(){
+ var dummyMail = MailApp.sendEmail();  
+}

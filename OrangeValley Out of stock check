@@ -1,0 +1,196 @@
+/**
+ * OrangeValley Out of stock check
+ *
+ * @overview 
+ * = AdWords Script voor het controleren van de voorraadstatus van producten op de website. 
+ *
+ * @How-to
+ * = Stap 1: Bepaal a.d.h.v. de broncode op de website welke melding er wordt gegeven wanneer
+ *           een product niet meer op voorraad is.
+ * = Step 2: Zet in 'Var 2' de melding die bij stap 1 uit de broncode is gehaald. 
+ *           Verdere instructies staan erbij vermeld.
+ * = Step 3: Zet in 'Var 3' je e-mailadres en de e-mailadressen van anderen als het rapport naar 
+ *           meerdere mensen moet worden gestuurd.
+ * = Step 4: Zet in 'Var 4' het onderwerp van de e-mail die je krijgt met de update van het budget. 
+ *           Zorg dat de naam van het account in het onderwerp staat
+ * = Step 5: Pas "Var 5' aan naar true wanneer je alleen een e-mail wilt ontvangen als de budgetten
+ *           buiten de gestelde marges treden.
+ * = Step 6: Geef met 'Var 6' aan of je ook rapportages wilt over campagnes die niks hebben uitgegeven.
+ * = Step 7: Geef met 'Var 7' aan of je ook een e-mail wilt, ondanks dat er geen accounts zijn om
+ *           over te rapporteren.
+ * = Step 8: Geef met 'Var 8' aan of er in de rapprotage ook het aantal dagen van de maand komt te staan.
+ * = Step 9: Geef met 'Var 9' aan of het uitgegeven bedrag van gisteren ook moet worden vermeld.
+ * = Step 10: Geef met 'Var 10' de kleurcodes aan voor over- of underspend.
+ * = Step 11: Geef met 'Var 11' aan of je alleen rapportage wilt over met campagnes
+ *            waarvoor in het spreadsheet bestand de labels staan vermeld.
+ * = Step 12: Geef met 'Var 12' wat de marges zijn totdat het script aangeeft dat er teveel of te weinig
+              is uitgegeven. Als dit in het spreadsheet document staat, worden de cijfers in het script
+              overschreven.
+ */
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~Options: Adjust the options with the following variables~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+/** Var 1: */
+  var messagesToCheckFor = ["PLAK_HIER_ZIN_UIT_BRONCODE"];
+  // What out of stock messages appear on the source code of your landing pages?
+  // Enter like ["Out of stock", "<em>0 available</em>"]
+  
+ /** Var 2: */ 
+  var trimAtQuestionMark = false;
+  // Do you want to remove all parameters which occur after the '?' character?
+  // Enter true or false
+ 
+/** Var 3: */
+  var type = "keywords";
+  // Choose "keywords" or "ads"
+  // Are your final URLs at the keyword or ad level?
+  
+/** Var 4: */
+  var recipients = ["PASTE_EMAIL_HERE"];
+  // If set, these addresses will be emailed with a list of any bad URLs.
+  // Enter like ["a@b.com"] or ["a@b.com","c@d.com","e@g.co.uk"]
+  // Leave as [] to skip.
+  
+/** Var 5: */
+  // Optional filtering options
+  // Enter like ["hey", "jude"]
+  // Leave as [] to skip
+  var containsArray = [];
+  // If set, only campaigns whose names contain these phrases will be checked
+
+/** Var 6: */
+  var excludesArray = [];
+  // If set, campaigns whose names contain any of these phrases will be ignored.
+  
+/** Var 7: */
+  var labelArray = [];
+  // If set, only keywords / ads with these labels will be checked
+  // Case sensitive.
+  
+/** Var 8: */
+  var campaignStatus = ["ENABLED"];
+  // The status of the campaigns
+  // Status options
+  // Choose from ["ENABLED"] if you only want enabled entities
+  // ["PAUSED"] if you only want paused entities
+  // ["ENABLED","PAUSED"] if you want enabled and paused entities
+
+/** Var 9: */
+  var adGroupStatus = ["ENABLED"];
+  // The status of the ad groups
+
+/** Var 10: */  
+  var status = ["ENABLED"];
+  // The status of the keywords / ads
+
+//~~~~~~~~~~~~~~~~~~~~Options END: Ending of variables that can be adjusted, don't touch the code below this line~~~~~~~~~~~~~~//
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+function main() {
+
+var urls = [];
+  var bad_urls = [];
+  var urlFetchOptions = {muteHttpExceptions: true};
+  var countEntities = 0;
+  
+  
+  var conditions = [];
+  if (containsArray.length > 0) {
+    conditions.push(" where the campaign name contains " + containsArray.join(", "));
+  }
+  if (excludesArray.length > 0) {
+    conditions.push(" where the campaign name excludes " + excludesArray.join(", "));
+  }
+  if (labelArray.length > 0) {
+    conditions.push(" where the " + type + " are labelled " + labelArray.join(", "));
+  }    
+  
+  if (containsArray.length === 0) {
+    containsArray.push("");
+  }
+  
+  for(var i = 0; i < containsArray.length; i++){
+    var string = iteratorConstructor(type, containsArray[i], excludesArray, labelArray, status, campaignStatus, adGroupStatus);
+    eval(string);
+    countEntities += iterator.totalNumEntities();
+    excludesArray.push(containsArray[i]);
+    while(iterator.hasNext()){
+      var object = iterator.next();
+      var url = object.urls().getFinalUrl();
+      
+      if(url == null || url == undefined){
+        url = object.getDestinationUrl();
+      }
+      
+      if(url !== null && url !== undefined){
+        if(trimAtQuestionMark){
+          url = url.split('?')[0];
+        }
+        if(urls.indexOf(url) === -1) {
+          urls.push(url);
+        }
+      }
+    }
+  }
+  
+  if (countEntities == 0) {
+    throw "No " + type + " found" + conditions.join("; and");
+  }
+  Logger.log(countEntities + " " + type + " found" + conditions.join("; and"));
+  Logger.log(urls.length + " unique URLs to check.");
+  
+  for(var x in urls){
+    var response = UrlFetchApp.fetch(urls[x],urlFetchOptions);
+    var code = response.getContentText();
+    for(var y = 0; y < messagesToCheckFor.length; y++){
+      var message = messagesToCheckFor[y];
+      if(code.indexOf(message) !== -1){
+        bad_urls.push(urls[x]);
+        break;
+      }
+    }
+  }
+  
+  if (bad_urls.length === 0) {
+    Logger.log("No bad URLs found.");
+  } else {  
+    Logger.log(bad_urls.length + " found:");
+    Logger.log(bad_urls.join("\n"));
+  }
+  
+  if(recipients.length > 0 && bad_urls.length > 0){
+    var name = AdWordsApp.currentAccount().getName();
+    var subject = name + "Didi OV out of stock script";
+    var body = 'De volgende webpagina bevat geen producten maar wordt wel op geadverteerd \n\nPhrases:\n"' + messagesToCheckFor.join('",\n"') + '"\n\nURLs:\n';
+    body += bad_urls.join("\n");
+    MailApp.sendEmail(recipients.join(","),subject,body);
+    Logger.log("Email sent to " + recipients.join(", "));
+  }
+  
+  function iteratorConstructor(type, containsString, excludesArray, labelArray, status, campaignStatus, adGroupStatus){
+    
+    var string = "var iterator = AdWordsApp."+type+"()";
+    if (containsString != "") {
+      string = string + ".withCondition('CampaignName CONTAINS_IGNORE_CASE " + '"' + containsString + '"' + "')";
+    }
+    for(var i = 0; i < excludesArray.length; i++){
+      string = string + ".withCondition('CampaignName DOES_NOT_CONTAIN_IGNORE_CASE " + '"' + excludesArray[i] + '"' + "')";
+    }
+    if(labelArray.length > 0){
+      string = string + ".withCondition('LabelNames CONTAINS_ANY " + '["' + labelArray.join('","') + '"]' + "')";
+    }
+    
+    string = string + ".withCondition('Status IN [" + status.join(",") + "]')";
+    string = string + ".withCondition('CampaignStatus IN [" + campaignStatus.join(",") + "]')";
+    string = string + ".withCondition('AdGroupStatus IN [" + adGroupStatus.join(",") + "]')";
+    string = string + ".orderBy('Cost DESC').forDateRange('LAST_30_DAYS')";
+    string = string + ".withLimit(50000)";
+    
+    string = string + ".get();"
+    
+    return string;
+    
+  }
+  
+}

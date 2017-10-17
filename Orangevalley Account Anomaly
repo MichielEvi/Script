@@ -1,0 +1,204 @@
+/**
+ * OrangeValley - Account Anomaly script
+ *
+ * @overview The Account Anomaly Detector alerts the advertiser whenever an
+ *     advertiser account is suddenly behaving too differently from what's
+ *     historically observed. See
+ *     https://developers.google.com/adwords/scripts/docs/solutions/account-anomaly-detector#adwordsapp
+ *     for more details.
+ *
+ * @How-to
+ * = Step 1: Create and rename a copy of the following spreadsheet: https://docs.google.com/spreadsheets/d/1JN6mkJjQ7OP5XRLBLDlD4BCqKP0K07Zpi5VENcuWEU4/edit
+ * = Step 2: In the new spreadsheet, adjust how far back the script will look at the historical data. 
+ * = Step 3: In the new spreadsheet, adjust the Alerting criteria for "Impressions too low", "Clicks too low" & "Cost too high" in the newly created spreadsheet
+ * = Step 4: In the new spreadsheet, enter your e-mailaddress below the alerting criteria.
+ * = Step 5: In this script, paste the URL of the new spreadsheet at "Var 1" between the '.
+ *
+ */
+
+// SETTINGS: Adjust the setting with the following variables
+
+/** Var 1: Edit the spreadsheet URL where the script should retrieve the criteria and your e-mailaddress */
+var SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/17l_45PX0LybdJQ8v2ro7J1Fw4p_k0q1L9QvvLJD_4K0/edit#gid=0';
+
+// SETTINGS END: Ending of variables that can be adjusted, don't touch the code below this line
+
+var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
+            'Saturday'];
+
+function main() {
+  Logger.log('Using spreadsheet - %s.', SPREADSHEET_URL);
+  var spreadsheet = SpreadsheetApp.openByUrl(SPREADSHEET_URL);
+
+  spreadsheet.getRangeByName('date').setValue(new Date());
+  spreadsheet.getRangeByName('account_id').setValue(
+      AdWordsApp.currentAccount().getCustomerId());
+  var impressionsThreshold = parseField(spreadsheet.
+      getRangeByName('impressions').getValue());
+  var clicksThreshold = parseField(spreadsheet.getRangeByName('clicks').
+      getValue());
+  var costThreshold = parseField(spreadsheet.getRangeByName('cost').getValue());
+  var weeksStr = spreadsheet.getRangeByName('weeks').getValue();
+  var weeks = parseInt(weeksStr.substring(0, weeksStr.indexOf(' ')));
+  var email = spreadsheet.getRangeByName('email').getValue();
+
+  var now = new Date(Utilities.formatDate(new Date(),
+      AdWordsApp.currentAccount().getTimeZone(), 'MMM dd,yyyy HH:mm:ss'));
+
+  var currentDate = now.getDate();
+  now.setTime(now.getTime() - 3 * 3600 * 1000);
+  var adjustedDate = now.getDate();
+
+  var hours = now.getHours();
+  if (hours == 0) {
+    hours = 24;
+  }
+  if (hours == 1) {
+    // first run of the day, kill existing alerts
+    spreadsheet.getRangeByName('clicks_alert').clearContent();
+    spreadsheet.getRangeByName('impressions_alert').clearContent();
+    spreadsheet.getRangeByName('cost_alert').clearContent();
+  }
+  var dayToCheck;
+  if (currentDate != adjustedDate) {
+    dayToCheck = 1;
+  } else {
+    dayToCheck = 0;
+  }
+  var dateRangeToCheck = getDateInThePast(dayToCheck);
+  var dateRangeToEnd = getDateInThePast(dayToCheck + 1);
+  var dateRangeToStart = getDateInThePast(dayToCheck + 1 + weeks * 7);
+  var fields = 'HourOfDay,DayOfWeek,Clicks,Impressions,Cost';
+
+  var today = AdWordsApp.report('SELECT ' + fields +
+      ' FROM ACCOUNT_PERFORMANCE_REPORT DURING ' + dateRangeToCheck + ',' +
+      dateRangeToCheck);
+  var past = AdWordsApp.report('SELECT ' + fields +
+      ' FROM ACCOUNT_PERFORMANCE_REPORT WHERE DayOfWeek=' +
+      DAYS[now.getDay()].toUpperCase() +
+      ' DURING ' + dateRangeToStart + ',' + dateRangeToEnd);
+
+  var todayStats = accumulateRows(today.rows(), hours, 1);
+  var pastStats = accumulateRows(past.rows(), hours, weeks);
+
+  var alertText = [];
+  if (impressionsThreshold &&
+      todayStats.impressions < pastStats.impressions * impressionsThreshold) {
+    var range = spreadsheet.getRangeByName('impressions_alert');
+    if (!range.getValue() || range.getValue().length == 0) {
+      alertText.push('    Impressions are too low: ' + todayStats.impressions +
+          ' impressions by ' + hours + ':00, expecting at least ' +
+          parseInt(pastStats.impressions * impressionsThreshold));
+      range.setValue('Alerting ' + hours + ':00');
+    }
+  }
+  if (clicksThreshold &&
+      todayStats.clicks < pastStats.clicks * clicksThreshold) {
+    var range = spreadsheet.getRangeByName('clicks_alert');
+    if (!range.getValue() || range.getValue().length == 0) {
+      alertText.push('    Clicks are too low: ' + todayStats.clicks +
+          ' clicks by ' + hours + ':00, expecting at least ' +
+          (pastStats.clicks * clicksThreshold).toFixed(1));
+      range.setValue('Alerting ' + hours + ':00');
+    }
+  }
+  if (costThreshold && todayStats.cost > pastStats.cost * costThreshold) {
+    var range = spreadsheet.getRangeByName('cost_alert');
+    if (!range.getValue() || range.getValue().length == 0) {
+      alertText.push('    Cost is too high: ' + todayStats.cost + ' ' +
+          AdWordsApp.currentAccount().getCurrencyCode() + ' by ' + hours +
+          ':00, expecting at most ' +
+          (pastStats.cost * costThreshold).toFixed(2));
+      range.setValue('Alerting ' + hours + ':00');
+    }
+  }
+  if (alertText.length > 0 && email && email.length > 0) {
+    MailApp.sendEmail(email,
+        'AdWords Account CBA Merknaam ' + AdWordsApp.currentAccount().getCustomerId() +
+        ' misbehaved.',
+        'Your account ' + AdWordsApp.currentAccount().getCustomerId() +
+        ' is not performing as expected today: \n\n' + alertText.join('\n') +
+        '\n\nLog into AdWords and take a look.\n\nAlerts dashboard: ' +
+        SPREADSHEET_URL);
+  }
+  spreadsheet.getRangeByName('date').setValue(new Date());
+  spreadsheet.getRangeByName('account_id').setValue(
+      AdWordsApp.currentAccount().getCustomerId());
+  spreadsheet.getRangeByName('timestamp').setValue(
+      DAYS[now.getDay()] + ', ' + hours + ':00');
+
+  var dataRows = [
+    [todayStats.impressions, pastStats.impressions.toFixed(0)],
+    [todayStats.clicks, pastStats.clicks.toFixed(1)],
+    [todayStats.cost, pastStats.cost.toFixed(2)]
+  ];
+  spreadsheet.getRangeByName('data').setValues(dataRows);
+}
+
+function toFloat(value) {
+  value = value.toString().replace(/,/g, '');
+  return parseFloat(value);
+}
+
+function parseField(value) {
+  if (value == 'No alert') {
+    return null;
+  } else {
+    return toFloat(value);
+  }
+}
+
+function accumulateRows(rows, hours, weeks) {
+  var row;
+  var result;
+
+  while (rows.hasNext()) {
+    var row = rows.next();
+    var hour = row['HourOfDay'];
+
+    if (hour < hours) {
+      result = addRow(row, result, 1 / weeks);
+    }
+  }
+
+  return result;
+}
+
+function addRow(row, previous, coefficient) {
+  if (!coefficient) {
+    coefficient = 1;
+  }
+  if (row == null) {
+    row = {Clicks: 0, Impressions: 0, Cost: 0};
+  }
+  if (!previous) {
+    return {
+      clicks: parseInt(row['Clicks']) * coefficient,
+      impressions: parseInt(row['Impressions']) * coefficient,
+      cost: toFloat(row['Cost']) * coefficient
+    };
+  } else {
+    return {
+      clicks: parseInt(row['Clicks']) * coefficient + previous.clicks,
+      impressions: parseInt(row['Impressions']) * coefficient +
+          previous.impressions,
+      cost: toFloat(row['Cost']) * coefficient + previous.cost
+    };
+  }
+}
+
+function checkInRange(today, yesterday, coefficient, field) {
+  var yesterdayValue = yesterday[field] * coefficient;
+  if (today[field] > yesterdayValue * 2) {
+    Logger.log('' + field + ' too much');
+  } else if (today[field] < yesterdayValue / 2) {
+    Logger.log('' + field + ' too little');
+  }
+}
+
+// Returns YYYYMMDD-formatted date.
+function getDateInThePast(numDays) {
+  var today = new Date();
+  today.setDate(today.getDate() - numDays);
+  return Utilities.formatDate(today, 'PST', 'yyyyMMdd');
+}

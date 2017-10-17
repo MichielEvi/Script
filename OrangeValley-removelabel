@@ -1,0 +1,13 @@
+/**
+*
+
+function main(removeLabel) {
+
+  var labelIterator = AdWordsApp.labels()
+      .withCondition('Name = "PASTE_HIER_LABEL"')
+      .get();
+  if (labelIterator.hasNext()) {
+    label = labelIterator.next();
+    label.remove();
+  }
+}

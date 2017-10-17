@@ -1,0 +1,123 @@
+/**
+ * OrangeValley exactNegs
+ *
+ * @overview 
+ * = Dit script is het uitvoerende gedeelte van het andere script: OrangeValley Exact negatives Script 
+ *   Op dit moment staat dit script in JSON-indeling op Google Drive op deze locatie:
+ *   https://drive.google.com/file/d/0B8eknrL1tnj9YW1KQWV4T0tIa0E/view . 
+ *
+ * @How-to
+ * = Stap 1: Dit script hoeft niet te worden aangepast.
+ * = Stap 2: Mocht je dit script willen gebruiken kan je het "OrangeValley Exact negatives Script" instellen.
+ *           Dit script is te vinden op deze locatie: 
+ *           https://github.com/orangevalley/codebase-sea/blob/master/Orangevalley%20Exact%20Negatives
+ */
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~Options: Adjust the options with the following variables~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+//~~~~~~~~~~~~~~~~~~~~Options END: Ending of variables that can be adjusted, don't touch the code below this line~~~~~~~~~~~~~~//
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+
+function exactNegs() {
+  if (SplitLevel == "Campaign") {
+      NegativesInCampaigns(ExactIdentifier, BroadIdentifier);
+    } else if (SplitLevel == "Adgroups") {
+      NegativesInAdgroups(ExactIdentifier, BroadIdentifier);
+    } else {
+    Logger.log("Please enter either 'Campaign' or 'Adgroups' in var SplitLevel = ..");
+    scriptLogger("Error in settings");
+    }
+}
+function NegativesInCampaigns(ExactBenaming, BroadBenaming) {
+  var Campaigns = AdWordsApp.campaigns()
+  .withCondition("Status = ENABLED")
+  .withCondition("Name CONTAINS_IGNORE_CASE '" + ExactBenaming + "'")
+  .withCondition("Impressions != 0")
+  .forDateRange("YESTERDAY")
+  .get();
+  var applied = 0;
+  
+  while ( Campaigns.hasNext() ) {
+    var Campaign = Campaigns.next();
+    var CampaignName = Campaign.getName().replace(/'/g, "\\'");
+    var CampaignNameReplace = CampaignName.replace(ExactBenaming, BroadBenaming);
+    var BroadCampaigns = AdWordsApp.campaigns().withCondition("Name = '" + CampaignNameReplace + "'").get();
+    var BroadVariantExists = BroadCampaigns.totalNumEntities();
+    if ( BroadVariantExists ) {
+      var BroadCampaign = BroadCampaigns.next();
+      var BroadCampaignName = BroadCampaign.getName();
+      var Report = AdWordsApp.report("SELECT Criteria FROM KEYWORDS_PERFORMANCE_REPORT WHERE KeywordMatchType = EXACT AND Status = ENABLED AND CampaignName = '" + CampaignName + "' DURING YESTERDAY");
+      var KeywordList = [];
+      var Rows = Report.rows();
+      while ( Rows.hasNext() ) {
+        var Row = Rows.next();
+        KeywordList.push(Row['Criteria']);
+      }
+      for (var i = 0; i < KeywordList.length; i++) {
+        BroadCampaign.createNegativeKeyword("[" + KeywordList[i] + "]")
+        applied += 1;
+      }
+    }
+  }
+  scriptLogger("Succesfully applied. " + applied + " changes.");
+}
+function NegativesInAdgroups(ExactBenaming, BroadBenaming) {
+  var Campaigns = AdWordsApp.adGroups()
+  .withCondition("Status = ENABLED")
+  .withCondition("Name CONTAINS_IGNORE_CASE '" + ExactBenaming + "'")
+  .withCondition("CampaignStatus = ENABLED")
+  .withCondition("Impressions != 0")
+  .forDateRange("YESTERDAY")
+  .get();
+  var applied = 0;
+    
+  while ( Campaigns.hasNext() ) {
+    var Campaign = Campaigns.next();
+    var CampaignName = Campaign.getName().replace(/'/g, "\\'");
+    var CampaignNameReplace = CampaignName.replace(ExactBenaming, BroadBenaming);
+    var BroadCampaigns = AdWordsApp.adGroups().withCondition("AdGroupName = '" + CampaignNameReplace + "'").get();
+    var BroadVariantExists = BroadCampaigns.totalNumEntities();
+    if ( BroadVariantExists ) {
+      var BroadCampaign = BroadCampaigns.next();
+      var BroadCampaignName = BroadCampaign.getName();
+      var Report = AdWordsApp.report("SELECT Criteria FROM KEYWORDS_PERFORMANCE_REPORT WHERE Impressions != 0 AND KeywordMatchType = EXACT AND Status = ENABLED AND AdGroupName = '" + CampaignName + "' DURING YESTERDAY");
+      var KeywordList = [];
+      var Rows = Report.rows();
+      while ( Rows.hasNext() ) {
+        var Row = Rows.next();
+        KeywordList.push(Row['Criteria']);
+      }
+      for (var i = 0; i < KeywordList.length; i++) {
+        BroadCampaign.createNegativeKeyword("[" + KeywordList[i] + "]")
+        applied += 1;
+      }
+    }
+  }
+  scriptLogger("Succesfully applied. " + applied + " changes.");
+}
+function scriptLogger(status){
+    var mccAccount = AdWordsApp.currentAccount().getName();
+    var currentDate = new Date();
+    var spreadsheet = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/1-vDsckVc0-Z-pgWmWPC-najn8IfkhIEJKqJMin7VPmw/");
+    var sheet = spreadsheet.getSheetByName("Script Log");
+    var data = sheet.getDataRange().getValues();
+    var accountNames = [];
+    var found = "no";
+    
+    for (var i = 1; i < data.length; i++){
+        var cellReference = i+1;  
+        //check if account already in sheet and update values if so
+        if (mccAccount == data[i][0]){
+              found = "yes";
+              sheet.getRange("B"+cellReference).setValue("ExactNegs");
+              sheet.getRange("C"+cellReference).setValue(currentDate);
+              sheet.getRange("D"+cellReference).setValue(status);
+        }
+    }
+     //else, add new row
+      if (found == "no"){
+        sheet.appendRow([mccAccount,"ExactNegs",currentDate,status]);
+      }
+}

@@ -1,0 +1,254 @@
+/* @How-to
+ * = Stap 1: Verander de URL bij Var 1 naar een nieuw spreadsheet document als deze is aangemaakt. Gebruik als template het 
+ *           spreadsheet document wat voor het Spend vs Budget script wordt gebruikt:
+ *           https://docs.google.com/spreadsheets/d/1vKcYu0JJJDtEYj-WWM4kP6bUVAOhj6jNogqom4OtHYA/edit#gid=0        
+ * = Stap 2: Vul precies de naam in van het account in kolom A en het budget in kolom C.
+ * = Stap 3: Stel de planning van het script in om elk te worden uitgevoerd.
+ *
+ */
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~Options: Adjust the options with the following variables~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+/** Var 1: Bewerk de URL voor het maandbudget.*/
+var url_van_spreadsheet = 'https://docs.google.com/spreadsheets/d/1J28JyDQ1hneKFsG4CJjSFujlzCx5fwX4cixz2s02MLk/edit#gid=0';
+
+/** Var 2: Vul de e-mailadressen in waar de melding naar toe moet worden gestuurd.*/
+var emailAddr = "wessel.dehaan@orangevalley.nl, maik.nieuwboer@orangevalley.nl";
+
+
+
+//~~~~~~~~~~~~~~~~~~~~Options END: Ending of variables that can be adjusted, don't touch the code below this line~~~~~~~~~~~~~~//
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+
+
+
+
+function mainFunction() {
+  
+  checkAndCreateLabel();
+  
+  var labelsApplied = checkIfLabelIsApplied();
+  var itsFirstOfTheMonth = ((new Date()).getDate() == 1);
+  
+  Logger.log("Het is de eerste van de maand: " + itsFirstOfTheMonth);
+  
+  if (labelsApplied > 0){
+    if (itsFirstOfTheMonth) {
+      var label = AdWordsApp.labels()
+      .withCondition('Name = "exceedsBudget"')
+      .get().next();
+      
+      var campaignIterator = label.campaigns().get();
+      while (campaignIterator.hasNext()) {
+        var campaign = campaignIterator.next();
+        campaign.enable('exceedsBudget');
+        campaign.removeLabel('exceedsBudget');
+      }
+      Logger.log("Alle campagnes met het label 'exceedsBudget' zijn weer aangezet.");
+      Logger.log("Bij alle campagnes met het label 'exceedsBudget' is dit label weggehaald.");
+    }
+    else {
+      Logger.log('Niet de eerste van de maand, campagnes worden niet live gezet.')
+      Logger.log(campaignStatusLogger);
+      Logger.log(budgetStatus)
+      Logger.log(ondernomenActie);
+      Logger.log(labelStatus);
+    }
+  }
+  
+  else{
+    
+      /* Google Spreadsheet with account info */  
+    var ss_url = url_van_spreadsheet;
+    var ss = SpreadsheetApp.openByUrl(ss_url);
+    var sheet = ss.getActiveSheet();
+    var lastRow = sheet.getLastRow();
+    var lastCell = "H"+lastRow;
+    var totalRange = "A2:"+lastCell;
+    Logger.log("Dit is de laatst gevulde rij in het spreadsheet: " + lastRow); 
+    
+    //var custId = AdWordsApp.currentAccount().getCustomerId();
+    
+    var custName = AdWordsApp.currentAccount().getName();
+    Logger.log("Het huidige account is: " + custName);
+  
+  
+    var scheduleRange = totalRange;
+    var spreadsheet = SpreadsheetApp.openByUrl(ss_url);
+    var sheets = spreadsheet.getSheets();  
+    var rows = sheet.getRange(scheduleRange).getValues();
+    
+    for(var i=0; i<rows.length; i++){
+      var row = String(rows[i]);
+      var cols = row.split(',');
+      var account_name = cols[0];
+      var account_id = cols[1];
+      var budget = cols[2];
+      var hardLimit = cols[7];
+      
+      if(account_name==custName)
+      {
+        // budget
+        Logger.log("Dit is het budget bij dit account: " + budget)
+        
+        
+        break;
+      }
+    }
+    
+    /* Geef aan wat het budget is */
+    var monthlyBudget = budget;
+    
+    var itsFirstOfTheMonth = ((new Date()).getDate() == 1);
+    Logger.log("Het is de eerste van de maand: " + itsFirstOfTheMonth);
+    
+    /* Haal de campagnes op die live staan*/
+    var campaignIterator = AdWordsApp.campaigns()
+    .withCondition("Status = ENABLED")
+    .get();
+    
+    /* Tel het aantal campagnes dat is opgehaald */
+    var numberOfLiveCampaigns = campaignIterator.totalNumEntities();
+    
+    /* Variabel waarin wordt aangegeven of er campagnes live stonden */
+    var campaignStatusLogger = "Aantal gevonden campagnes die live staan: " + numberOfLiveCampaigns;
+    
+    Logger.log(campaignStatusLogger);
+    
+
+      
+      // GET THE TOTAL SPEND OF THE ACCOUNT
+      var costReport = AdWordsApp.report("Select Cost from ACCOUNT_PERFORMANCE_REPORT DURING THIS_MONTH");
+      
+      var reportRow = costReport.rows().next();
+      var totalCost = reportRow["Cost"].replace('', ''); // Remove thousand separator
+      
+      // Kijk of het uitgegevens geld meer is dan je maandelijks budet.
+      // parseFloat is gebruikt om een cijfer met string te vergelijken
+      
+      var totalCost = totalCost.replace(',','');
+      Logger.log(totalCost)
+      Logger.log(parseFloat(totalCost))
+      Logger.log(monthlyBudget)
+      Logger.log(parseFloat(monthlyBudget))
+      
+      if (parseFloat(totalCost) > parseFloat(monthlyBudget)){
+        
+        // Retrieve a campaign, and apply a label to it. Applying labels to other
+        // object types are similar.
+        var campaignIterator = AdWordsApp.campaigns()
+        .withCondition("Status = ENABLED")
+        .get();
+        while (campaignIterator.hasNext()) {
+          var campaign = campaignIterator.next();
+          campaign.applyLabel('exceedsBudget');
+        }
+        
+        var labelStatus = "Het exceedsBudget label is toegewezen.";
+        
+        Logger.log("hardLimit staat op: " + hardLimit);
+        if(hardLimit==="ja"){
+          
+          /* Uitleg dat voor het account een hard limiet wordt gebruikt.*/
+          Logger.log("Is hardLimit JA? Dan staat hier ja: " + hardLimit); 
+        
+          pauseCampaigns();
+          
+          var budgetStatus = "Deze maand is € " + totalCost + " van de € " + monthlyBudget + " uitgegeven. De campagnes worden dus onderbroken.";
+          var ondernomenActie = "Er zijn " + numberOfLiveCampaigns + " campagnes onderbroken";
+          
+          // Pas het onderwerp van de e-mail aan.
+          var emailSubject = "Account gepauzeerd: " + AdWordsApp.currentAccount().getName();
+          
+          // Pas het bericht van de e-mail aan.
+          var emailBody = "Het account " + AdWordsApp.currentAccount().getName() + " is gepauzeerd. Het budgetlimiet van " + monthlyBudget + " is overschreden. Er is " + totalCost + " uitgegeven";
+        }
+        
+        else{
+          Logger.log("Is het hardLimit NEE? Dan staat hier " + hardLimit);
+          
+          var ondernomenActie = "Er zijn geen campagnes onderbroken";
+          var budgetStatus = "Deze maand is € " + totalCost + " van de € " + monthlyBudget + " uitgegeven. De campagnes worden niet onderbroken.";
+          
+          // Pas het onderwerp van de e-mail aan.
+          var emailSubject = "Account is over zijn budget: " + AdWordsApp.currentAccount().getName();
+          // Pas het bericht van de e-mail aan.
+          var emailBody = "Het account " + AdWordsApp.currentAccount().getName() + " is over zijn budget. Het budgetlimiet van " + monthlyBudget + " is overschreden. Er is " + totalCost + " uitgegeven. De campagnes staan nog live, er is geen actie ondernomen op de accounts.";
+          
+        }
+        
+        /* Haal de campagnes op die live staan*/
+        var campaignsWithexceedsBudgetLabel = AdWordsApp.campaigns()
+        .withCondition("LabelNames CONTAINS_ANY ['exceedsBudget']")
+        .get();
+        
+        var numberOfcampaignsWithexceedsBudgetLabel = campaignsWithexceedsBudgetLabel.totalNumEntities();
+        
+        if (numberOfcampaignsWithexceedsBudgetLabel < 1){
+          //E-mail wordt verstuurd
+          MailApp.sendEmail(emailAddr, emailSubject, emailBody);
+          Logger.log("Stuur e-mail");
+        }      
+        
+        Logger.log(ondernomenActie);
+        Logger.log(labelStatus);
+        Logger.log(budgetStatus)
+        
+      }
+      
+      else {
+        var ondernomenActie = "Er zijn geen campagnes onderbroken";
+        var budgetStatus = "Deze maand is € " + totalCost + " van de € " + monthlyBudget + " uitgegeven.";
+        var labelStatus = "Er is geen actie ondernomen op de labels.";
+        
+        Logger.log(ondernomenActie);
+        Logger.log(labelStatus);
+        Logger.log(budgetStatus)  
+      } 
+    
+    
+  }
+}
+
+
+function checkAndCreateLabel (){
+   /* Check of label al bestaat */  
+  var labelIterator = AdWordsApp.labels()
+  .withCondition('Name = "exceedsBudget"')
+  .get();
+  while (labelIterator.hasNext()) {
+   var label = labelIterator.next();
+     Logger.log(label.getName());
+  }
+  
+  if (labelIterator > 0){
+    Logger.log("Label bestaat al en wordt niet aangemaakt");
+  }
+  else {
+    AdWordsApp.createLabel("exceedsBudget");
+    Logger.log("Label bestaat niet en wordt aangemaakt");
+  }
+}
+
+function pauseCampaigns(){
+ var campaignIterator = AdWordsApp.campaigns().withCondition("Status = ENABLED").get();
+  while (campaignIterator.hasNext()){
+    var campaign = campaignIterator.next();
+    campaign.pause();
+  }
+}
+
+function checkIfLabelIsApplied(){
+  /* Haal de campagnes op die live staan*/
+  var campaignsWithexceedsBudgetLabel = AdWordsApp.campaigns()
+  .withCondition("LabelNames CONTAINS_ANY ['exceedsBudget']")
+  .get();
+  
+  var numberOfcampaignsWithexceedsBudgetLabel = campaignsWithexceedsBudgetLabel.totalNumEntities();
+  
+  if (numberOfcampaignsWithexceedsBudgetLabel > 1){  
+      return numberOfcampaignsWithexceedsBudgetLabel;
+  }  
+}
